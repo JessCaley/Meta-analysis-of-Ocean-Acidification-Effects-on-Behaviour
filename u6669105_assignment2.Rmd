@@ -21,10 +21,6 @@ clark_data <- read.csv(clark_path, stringsAsFactors = T)
 meta_data  <- read.csv(meta_path, stringsAsFactors = T)
 ```
 
-```{r writedata, include=FALSE}
-
-```
-
 ```{r cleanclarkdata, include = FALSE}
 
 clark_clean <- clark_data %>% na.omit() %>% # remove NA values 
@@ -35,6 +31,43 @@ levels(clark_clean$species)
 levels(clark_clean$treatment)
 ```
 
-
 # Statistical Analysis and Interpretation
+
+
+```{r summaryClark}
+# Generate summary statistics for each fish species in clark data
+data_summary <- clark_clean %>% 
+  group_by(species, treatment) %>%
+  summarise(mean_activity = mean(activity),
+            std_activity = sd(activity)/length(activity), 
+            n = n() ) # sample size
+data_summary
+
+# 
+
+
+
+# Use flextable to render the summary table in a tidy format
+data_summary %>% 
+  group_by(species) %>%
+  flextable()
+
+
+```
+
+To merge the data from the Clark *et al.* (2020) paper with the meta data need to match headings
+- cue/stimulus type
+
+
+for each species, calculate:
+- ctrl.n	ctrl.mean	ctrl.sd	
+- oa.n	oa.mean	oa.sd 
+
+
+
+
+```{r writedata, include=FALSE}
+
+```
+
 
