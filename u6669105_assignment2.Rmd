@@ -4,9 +4,36 @@ author: u6669105
 output: html_notebook
 ---
 
-
 [GitHub Repository](https://github.com/JessCaley/Meta-analysis-of-Ocean-Acidification-Effects-on-Behaviour)
 
+```{r loadpacks, message=FALSE, results='hide', warning=FALSE, include=FALSE}
+# install and load packages
+library(pacman)
+p_load(bookdown, tidyr, dplyr, ggplot2, readr, tibble, knitr, ggforce, flextable, latex2exp, png, magick) 
+```
+
+```{r loadfiles, include=FALSE}
+# loading in the data
+clark_path <- './data/OA_activitydat_20190302_BIOL3207.csv'
+meta_path <- './data/ocean_meta_data.csv'
+
+clark_data <- read.csv(clark_path, stringsAsFactors = T)
+meta_data  <- read.csv(meta_path, stringsAsFactors = T)
+```
+
+```{r writedata, include=FALSE}
+
+```
+
+```{r cleanclarkdata, include = FALSE}
+
+clark_clean <- clark_data %>% na.omit() %>% # remove NA values 
+  subset(., select = -c(X, comment, loc, size, animal_id)) # drop irrelevant columns
+
+# Check for spelling errors in species and treatment
+levels(clark_clean$species)
+levels(clark_clean$treatment)
+```
 
 
 # Statistical Analysis and Interpretation
