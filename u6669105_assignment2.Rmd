@@ -76,18 +76,34 @@ clark_final$X2017.IF <- as.factor(clark_final$X2017.IF)
 # bind the two data sets by rows
 data_full <- rbind(meta_data, clark_final)
 ```
-
-
-
-for each species, calculate:
-- ctrl.n	ctrl.mean	ctrl.sd	
-- oa.n	oa.mean	oa.sd 
-
-
-
-
 ```{r writedata, include=FALSE}
+# write the altered data to another csv file
+write_csv(data_full, './output/meta_data_final.csv')
+```
 
+```{r lnRR}
+# calculate the log response ratio (lnRR) effect size for every row
+# measure = ROM for log transformed ratio of means?
+# Need to exclude negative mean values because lnRR doesn't work with negative means
+data_pos <- data_full[data_full$ctrl.mean > 0,] 
+data_pos <- data_pos[data_pos$oa.mean > 0,]
+
+lnRR_data <- metafor::escalc(data = data_pos,
+                measure = "ROM", 
+                m1i = oa.mean, # mean treatment
+                sd1i = oa.sd, # sd treatment
+                n1i = oa.n, 
+                
+                m2i = ctrl.mean, # mean control
+                sd2i = ctrl.sd,
+                n2i = ctrl.n
+                )
+
+lnRR_long <- log(data_pos$oa.mean / data_pos$ctrl.mean)
+
+
+
+lnRR_data %>% slice_head(n = 5)
 ```
 
 
