@@ -19,12 +19,16 @@ meta_path <- './data/ocean_meta_data.csv'
 
 clark_data <- read.csv(clark_path, stringsAsFactors = T)
 meta_data  <- read.csv(meta_path, stringsAsFactors = T)
+
+# loading the meta data for clark data
+clark_meta_path <- './data/clark_paper_data.csv'
+clark_meta <- read.csv(clark_meta_path)
 ```
 
 ```{r cleanclarkdata, include = FALSE}
 
-clark_clean <- clark_data %>% na.omit() %>% # remove NA values 
-  subset(., select = -c(X, comment, loc, size, animal_id)) # drop irrelevant columns
+# clark_clean <- clark_data %>% na.omit() %>% # remove NA values 
+#  subset(., select = -c(X, comment, loc, size, animal_id)) # drop irrelevant columns
 
 # Check for spelling errors in species and treatment
 levels(clark_clean$species)
@@ -33,30 +37,46 @@ levels(clark_clean$treatment)
 
 # Statistical Analysis and Interpretation
 
-
 ```{r summaryClark}
-# Generate summary statistics for each fish species in clark data
-data_summary <- clark_clean %>% 
+# Generate summary statistics of activity for each fish species and treatment in clark data
+data_summary <- clark_data %>% 
   group_by(species, treatment) %>%
-  summarise(mean_activity = mean(activity),
-            std_activity = sd(activity)/length(activity), 
-            n = n() ) # sample size
-data_summary
-
-# 
-
-
+  summarise(mean = mean(activity, na.rm = TRUE),
+            sd = sd(activity, na.rm = TRUE),
+            n = length(unique(animal_id))) %>%
+              rename(Species = "species")
 
 # Use flextable to render the summary table in a tidy format
 data_summary %>% 
-  group_by(species) %>%
+  group_by(Species) %>%
   flextable()
-
 
 ```
 
-To merge the data from the Clark *et al.* (2020) paper with the meta data need to match headings
-- cue/stimulus type
+
+```{r mergeData}
+# merge the clark data summary with the clark meta data by columns
+total_clark <- cbind(clark_meta, data_summary)
+# need to move the different treatments into columns
+clark_final <- pivot_wider(total_clark, names_from = treatment, 
+                           names_glue = "{treatment}_{.value}", 
+                           values_from = c("mean", "sd", "n"))
+# rename columns to match meta data column names
+clark_final <- clark_final %>% rename("oa.mean" = CO2_mean, 
+                                      "oa.sd" = CO2_sd,
+                                      "oa.n" = CO2_n,
+                                      "ctrl.mean" = control_mean,
+                                      "ctrl.sd" = control_sd,
+                                      "ctrl.n" = control_n)
+# reorder the columns to match meta data
+clark_final <- clark_final[names(meta_data)]
+# The Pub.year.IF and X2017.IF are factors in the meta data set because of empty entries, will convert clark into factors
+clark_final$Pub.year.IF <- as.factor(clark_final$Pub.year.IF)
+clark_final$X2017.IF <- as.factor(clark_final$X2017.IF)
+# bind the two data sets by rows
+data_full <- rbind(meta_data, clark_final)
+```
+
 
 
 for each species, calculate:
