@@ -44,7 +44,7 @@ data_summary <- clark_data %>%
   summarise(mean = mean(activity, na.rm = TRUE),
             sd = sd(activity, na.rm = TRUE),
             n = length(unique(animal_id))) %>%
-              rename(Species = "species")
+              rename(Species = "species") 
 
 # Use flextable to render the summary table in a tidy format
 data_summary %>% 
@@ -67,43 +67,141 @@ clark_final <- clark_final %>% rename("oa.mean" = CO2_mean,
                                       "oa.n" = CO2_n,
                                       "ctrl.mean" = control_mean,
                                       "ctrl.sd" = control_sd,
-                                      "ctrl.n" = control_n)
+                                      "ctrl.n" = control_n) 
+# Replace species names with full scientific names
+clark_final <- clark_final %>% mutate(Species = clark_final$Species %>% 
+                                        gsub("acantho", "Acanthochromis polyacanthus", .) %>% 
+                                        {gsub("ambon", "Pomacentrus amboinensis", .)} %>%
+                                        {gsub("chromis", "Chromis atripectoralis", .)} %>%
+                                        {gsub("humbug", " Dascyllus aruanus", .)} %>% 
+                                        {gsub("lemon", "Pomacentrus moluccensis", .)} %>%
+                                        {gsub("whitedams", "Dischistodus perspicillatus", .)})
 # reorder the columns to match meta data
 clark_final <- clark_final[names(meta_data)]
 # The Pub.year.IF and X2017.IF are factors in the meta data set because of empty entries, will convert clark into factors
 clark_final$Pub.year.IF <- as.factor(clark_final$Pub.year.IF)
 clark_final$X2017.IF <- as.factor(clark_final$X2017.IF)
 # bind the two data sets by rows
-data_full <- rbind(meta_data, clark_final)
+data_full <- rbind(meta_data, clark_final) 
+# add observation level
+data_full$residual <- 1:dim(data_full)[1]
+
 ```
 ```{r writedata, include=FALSE}
 # write the altered data to another csv file
 write_csv(data_full, './output/meta_data_final.csv')
 ```
 
-```{r lnRR}
-# calculate the log response ratio (lnRR) effect size for every row
-# measure = ROM for log transformed ratio of means?
-# Need to exclude negative mean values because lnRR doesn't work with negative means
-data_pos <- data_full[data_full$ctrl.mean > 0,] 
-data_pos <- data_pos[data_pos$oa.mean > 0,]
-
-lnRR_data <- metafor::escalc(data = data_pos,
-                measure = "ROM", 
+Calculation of log response ratio (lnRR) effect size for every row and the sampling variance of the lnRR
+```{r lnRR, results='hide', warning=FALSE}
+lnRR_data <- metafor::escalc(data = data_full,
+                measure = "ROM", # measure = ROM, for log transformed ratio of means
                 m1i = oa.mean, # mean treatment
                 sd1i = oa.sd, # sd treatment
                 n1i = oa.n, 
                 
                 m2i = ctrl.mean, # mean control
-                sd2i = ctrl.sd,
-                n2i = ctrl.n
+                sd2i = ctrl.sd, # sd control
+                n2i = ctrl.n, 
+                
+                var.names = c("LRR", "var_LRR") # column names
                 )
 
-lnRR_long <- log(data_pos$oa.mean / data_pos$ctrl.mean)
-
-
-
-lnRR_data %>% slice_head(n = 5)
+# Note that lnRR doesn't work with negative means, meaning the negative values produce NaNs :]
 ```
 
+Fitting of multivariate meta-analytic model to data, controlling for sampling variance in lnRR, and including the random effect of study,  observation
+```{r metaAnalyticModel}
+MLMA <- metafor::rma.mv(yi = LRR ~ var_LRR, # effect size measure log response ratio with sampling variance as fixed effect
+                              V = var_LRR, # sampling variance of LRR
+                              # fit model using restricted maximum likelihood (considers degrees freedom, better for small sample sizes)
+                              method = "REML", 
+                              # random-effects of the model study and observation (residual)
+                              random = list(~1 | Study, 
+                                            ~1 | residual 
+                                            #, ~1 | Species
+                                            ), 
+                              test = "t", # use the t test statistic 
+                              data = na.omit(lnRR_data)) # remove the NA values from the data! 
+
+summary(MLMA)
+```
+
+```{r r2ml_R2calc, include=FALSE}
+# Function copied from orchaRd package, [GitHub Repository](https://github.com/daniel1noble/orchaRd/tree/b8cc44e1f246beaf2f45d0071327d5ab44b083bd)
+r2_ml <- function(model, data, boot = NULL) {
+
+  if(all(class(model) %in% c("robust.rma", "rma.mv", "rma", "rma.uni")) == FALSE) {stop("Sorry, you need to fit a metafor model of class robust.rma, rma.mv, rma, rma.uni")}
+
+  R2 <- R2_calc(model)
+
+  if(!is.null(boot)){
+
+    if(any(class(model) %in% c("robust.rma")) == TRUE){stop("Sorry, bootstrapping currently doesn't work for robust.rma objects. Please use rma.mv instead.")}
+    # Simulate the vector of effect sizes
+    sim <- metafor::simulate.rma(model, nsim=boot)
+
+    # Get formula from model object.
+    random_formula <- model$random
+    mods_formula <- metafor::formula.rma(model, type = "mods") #in case moderators
+    vi <- model$vi
+
+    pb <- progress::progress_bar$new(total = boot,
+                                     format = "Bootstrapping [:bar] :percent ETA: :eta",
+                                     show_after = 0)
+    # Paramatric bootsrap
+    R2 <- sapply(sim, function(ysim) {
+      # The model
+      tmp <- metafor::rma.mv( ysim, vi,
+                     mods = mods_formula,
+                     random = random_formula,
+                     data = data)
+      R2s <- R2_calc(tmp)
+      pb$tick()
+      Sys.sleep(1 / boot)
+      return(R2s)
+    })
+
+    # Summarise the bootstrapped distribution.
+    R2 <- data.frame(t(apply(R2, 1, stats::quantile, probs=c(0.5, .025, .975))))
+    R2 <-  round(R2, digits = 3)
+    colnames(R2) = c("Est.", "2.5%", "97.5%")
+}
+
+return(R2)
+
+}
+
+
+R2_calc <- function(model){
+  if(all(class(model) %in% c("robust.rma", "rma.mv", "rma", "rma.uni")) == FALSE) {stop("Sorry, you need to fit a metafor model of class robust.rma, rma.mv, rma, rma.uni")}
+  # fixed effect variance
+  fix <- stats::var(as.numeric(as.vector(model$b) %*% t(as.matrix(model$X))))
+
+  # marginal
+  R2m <- fix / (fix + sum(model$sigma2))
+
+  # conditional
+  R2c <- (fix + sum(model$sigma2) - model$sigma2[length(model$sigma2)]) /
+    (fix + sum(model$sigma2))
+
+  R2s <- c(R2_marginal = R2m, R2_conditional = R2c)
+  return(R2s)
+}
+```
+
+lnRR variation explained by model 
+```{r}
+r2 <- r2_ml(MLMA) # calculate r2 for multilevel model using function from orchaRd package
+```
+
+```{r funnelLogRR, echo=FALSE}
+# Funnel plot 
+metafor::funnel(x = )
+
+
+```
+
+
+Figure \@ref(fig:funnelLogRR)
 
