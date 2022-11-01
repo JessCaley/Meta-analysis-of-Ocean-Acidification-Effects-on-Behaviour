@@ -1,5 +1,5 @@
 ---
-title: "R Notebook"
+title: "Meta-Analysis on the Effects of Ocean Acidification on the Behaviour of Fish"
 author: u6669105
 output: 
   bookdown::html_notebook2
@@ -86,7 +86,8 @@ clark_final$X2017.IF <- as.factor(clark_final$X2017.IF)
 # bind the two data sets by rows
 data_full <- rbind(meta_data, clark_final) 
 data_full <- data_full %>% mutate(Year.online = Year..online.,
-                                  Year.print = Year..print.)
+                                  Year.print = Year..print.) %>%
+  subset(select = -c(Year..online., Year..print.))
 # add observation level
 data_full$residual <- 1:dim(data_full)[1]
 
@@ -1218,14 +1219,14 @@ i2_flex <- flextable(i2) %>%
     compose(part = "header", j = 2, value = as_paragraph(as_b("I"), as_b(as_sup("2")), as_b("(%)")))
 
 i2_flex <- set_caption(i2_flex, 
-            caption = "Total effect size hetereogneity (Total), as well as the proportion of hetereogeneity in effects resulting from Study and Residual / Observational")
+            caption = "Total effect size hetereogneity, as well as the proportion of hetereogeneity in effects resulting from Study and Observational")
 i2_flex
 
 
 ```
 ```{r predictMLMA, warning=FALSE, message=FALSE}
 pred<-predict(MLMA)[1] # transformed to just response ratio
-
+pred
 ```
 
 
@@ -1373,7 +1374,7 @@ r2_inverse_flex
 
 ```
 
-```{r MLMAspecies, echo=FALSE}
+```{r MLMAspecies, echo=FALSE, include=FALSE}
 MLMA_species <- metafor::rma.mv(yi = LRR ~ var_LRR + Year.online, 
                         # effect size measure log response ratio with inverse sampling variance as fixed effect
                               V = var_LRR, # sampling variance of LRR
@@ -1403,7 +1404,7 @@ ggplot(lnRR_data, aes(y = LRR, x = var_LRR, colour = Study)) +
     theme_classic()  + 
    theme(legend.position = "hide")
 ```
-```{r timelagPlot, fig.cap="Plot of lnRR as function of publication year. Points are scaled in relation to their precision (1/sqrt(var_lnRR)). Small points idicate effects with low precision or high sampling variance", echo=FALSE}
+```{r timelagPlot, fig.cap="Plot of lnRR as function of publication year. Points are scaled in relation to their precision (1/sqrt(var_lnRR)). Small points idicate effects with low precision or high sampling variance", echo=FALSE, include=FALSE}
 ggplot(lnRR_data, aes(y = LRR, x = Year.online, size = (1/sqrt(var_LRR)), colour = Study) ) + 
   geom_point(alpha = 0.3) +
   geom_smooth(method = lm, col = "red", show.legend = FALSE) + 
@@ -1412,7 +1413,7 @@ ggplot(lnRR_data, aes(y = LRR, x = Year.online, size = (1/sqrt(var_LRR)), colour
   theme_classic() +
   scale_x_continuous(breaks = c(2009, 2010, 2011, 2012, 2013, 2014, 2015,2016, 2017, 2018, 2019))
 ```
-```{r}
+```{r include=FALSE}
 metafor::funnel(x = lnRR_data$LRR, # log response ratio
                 vi = lnRR_data$var_LRR, # sampling variances
                 yaxis = "seinv", # inverse standard error
@@ -1436,20 +1437,18 @@ metafor::funnel(x = lnRR_data$LRR, # log response ratio
 #### The potential for publication bias, based on the meta-regression results
 
 There appears to potentially be a time-lag bias present in the data. In Figure \@ref(fig:timelagPlot)) we can see that in the first two years, 2009 and 2010, there are more studies with a higher effect size (lnRR) than in later years. The linear model of the effect size over time shows a slight decrease, and is approximately tending towards and effect size of zero. The studies in 2009 with the highest precision have an effect size of close to zero, and when we remove the two data points from 2009 with this very high precision, as seen in Figure \@ref(fig:timeLagRemovedSmallVar)), we can see that the studies in subsequent years with higher precision also tend around an effect size of zero, while studies with smaller precision had large positive or negative effect sizes. 
-The multi-variate meta-analytic model fitted to the Log Response Ratio using year as a fixed effect indicated that the mean effect size significantly (p < 0.01) decreased as more studies are conducted, with a slope of -0.1146. The model suggests that that time lag explains `r r2_time[1]*100`% of the variation in lnRR across studies. This suggests that there is time-lag bias present, with the average effect size of studies over time approaching zero. 
+The multi-variate meta-analytic model fitted to the Log Response Ratio using year as a fixed effect indicated that the mean effect size significantly (p < 0.01) decreased as more studies are conducted, with a slope of -0.1146. The model suggests that that time lag explains `r r2_time[1]*100`% of the variation in lnRR across studies. This suggests that there is time-lag bias present, with initial studies finding large effect sizes, but over time the average effect size of studies approaches zero. 
 
 In Figure \@ref(fig:funnelRR)) we can see that the precision of the effect size (RR) falls into a funnel shape. There appears to be more effect sizes in the positive response ratio, which would correspond to an increased response to ocean acidification in fish. However, there are also studies that show an opposite pattern. There appears to be a small gap in the left of the funnel plot, which could potentially suggest publication 'file drawer' bias in the data. As studies with low precision and non-significant response ratios that show a response ratio of less than one, could go unpublished. However, when the Log Response Ratio (lnRR) is fitted to a multivariate meta-analysis model using the inverse sampling variance, there was not a significant (p > 0.05) estimated mean change in lnRR when the inverse sammpling error changes. Additionally, `r r2_inverse[1]*100`% of the variance in effect size could be explained by the inverse sampling variance. Overall, this can not indicate that there is file-drawer publication bias occuring. 
 
+The study by Lonnstedt *et al* (2013) potentially contributes to the publication bias, with large effect size and large sampling variance for the effect size. The study by Dixson *et al* (2009) potentially contributes to the time-lag publication bias, with large positive effect sizes found in data with very small variance but with average sample size of 15. The study by Munday *et al* (2010) also had a large positive effect size which may contribute to the time-lab publication bias. Another study by Munday *et al* (2014) found both large positive and negative effect sizes. 
 
-Identify any studies contributing to publication bias. 
-- one's with very large effect sizes, a2
-- one's with low precision high effect size  
-
-
-How do your updated meta-analysis results compare with a meta-analysis by Clement et. al. (2022)? Are there any concerns about these studies? If so, describe using references to existing papers what concerns have been raised?
-
-The meta-analysis by Clement *et al* (2022) found in their review of 91 studies found evidence to suggest that over time the studies can be characterised by a decline effect, in which the large effects found in initial studies have not been present in subsequent studies. 
-This is consistent with the results from this meta-analysis that found a decrease in effect size over time, as seen in Figure \@ref(fig:timelagPlot)). 
-- magnitude? 
+The meta-analysis by Clement *et al* (2022) found in their review of 91 studies found evidence to suggest that over time the studies can be characterised by a decline effect, in which the large effects found in initial studies have not been present in subsequent studies. This is consistent with the results from this meta-analysis that found a decrease in effect size over time, as seen in Figure \@ref(fig:timelagPlot)), although this study found a less prominent trend. Clement *et al* (2022) also considered additional elements of the studies in their analysis, including the impact at time of publication online, species studied, and sample size in their analysis. 
+This does raise concerns for these studies, as Clement *et al* (2022) identified methodological biases. They found a large number of studies (87%) with mean effect size magnitude above 1 had mean sample size below 30 fish, also, the number of studies that found an effect size with magnitude grater than 0.5 sharply decreased when a sample size greater than 30 was used. Additionally, some studies were not blinded during the recording of fish behaviour. Further concerns raised by Clement *et al* (2022) are in regards to the validity of data from studies published in 2009 to 2010. 
+In the study conducted by Clark *et al* (2020), they attempted to replicate previous studies but found neglible effects on fish behaviour from ocean acidification. Additionally, using bootstrap data simulations Clark *et al* (2020) found that the large effect sizes and small within-group variances of some studies are highly improbable. 
 
 
+References
+Clark, T.D., Raby, G.D., Roche, D.G. et al. (2020) Ocean acidification does not impair the behaviour of coral reef fishes. Nature 577, 370–375. https://doi.org/10.1038/s41586-019-1903-y
+Clements JC, Sundin J, Clark TD, Jutfelt F (2022) Meta-analysis reveals an extreme “decline effect” in the impacts of ocean acidification on fish behavior. PLoS Biol 20(2): e3001511. https://doi.org/10.1371/journal.pbio.3001511
+Enserink M. Sea of doubts. Science. 2021;372:560–5. pmid:33958459
