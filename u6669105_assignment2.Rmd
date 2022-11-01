@@ -1,7 +1,8 @@
 ---
 title: "R Notebook"
 author: u6669105
-output: html_notebook
+output: 
+  bookdown::html_notebook2
 ---
 
 [GitHub Repository](https://github.com/JessCaley/Meta-analysis-of-Ocean-Acidification-Effects-on-Behaviour)
@@ -12,15 +13,14 @@ library(pacman)
 p_load(bookdown, tidyr, dplyr, ggplot2, readr, tibble, knitr, ggforce, flextable, latex2exp, png, magick) 
 ```
 
-```{r loadfiles, include=FALSE}
+```{r loadfiles, results='hide', warning=FALSE}
 # loading in the data
 clark_path <- './data/OA_activitydat_20190302_BIOL3207.csv'
 meta_path <- './data/ocean_meta_data.csv'
-
 clark_data <- read.csv(clark_path, stringsAsFactors = T)
 meta_data  <- read.csv(meta_path, stringsAsFactors = T)
 
-# loading the meta data for clark data
+# loading the meta data for the clark data
 clark_meta_path <- './data/clark_paper_data.csv'
 clark_meta <- read.csv(clark_meta_path)
 ```
@@ -31,13 +31,14 @@ clark_meta <- read.csv(clark_meta_path)
 #  subset(., select = -c(X, comment, loc, size, animal_id)) # drop irrelevant columns
 
 # Check for spelling errors in species and treatment
-levels(clark_clean$species)
-levels(clark_clean$treatment)
+levels(clark_data$species)
+levels(clark_data$treatment)
 ```
 
 # Statistical Analysis and Interpretation
 
-```{r summaryClark}
+Summary statistics of activity for each fish species and treatment in data from Clark *et al* (2020), to be merged into meta data.
+```{r summaryClark, warning=FALSE, echo=FALSE, message=FALSE}
 # Generate summary statistics of activity for each fish species and treatment in clark data
 data_summary <- clark_data %>% 
   group_by(species, treatment) %>%
@@ -54,7 +55,8 @@ data_summary %>%
 ```
 
 
-```{r mergeData}
+Merging of the datasets
+```{r mergeData, message=FALSE}
 # merge the clark data summary with the clark meta data by columns
 total_clark <- cbind(clark_meta, data_summary)
 # need to move the different treatments into columns
@@ -83,17 +85,20 @@ clark_final$Pub.year.IF <- as.factor(clark_final$Pub.year.IF)
 clark_final$X2017.IF <- as.factor(clark_final$X2017.IF)
 # bind the two data sets by rows
 data_full <- rbind(meta_data, clark_final) 
+data_full <- data_full %>% mutate(Year.online = Year..online.,
+                                  Year.print = Year..print.)
 # add observation level
 data_full$residual <- 1:dim(data_full)[1]
 
 ```
+
 ```{r writedata, include=FALSE}
 # write the altered data to another csv file
 write_csv(data_full, './output/meta_data_final.csv')
 ```
 
 Calculation of log response ratio (lnRR) effect size for every row and the sampling variance of the lnRR
-```{r lnRR, results='hide', warning=FALSE}
+```{r lnRR, results='hide', warning=FALSE, message=FALSE}
 lnRR_data <- metafor::escalc(data = data_full,
                 measure = "ROM", # measure = ROM, for log transformed ratio of means
                 m1i = oa.mean, # mean treatment
@@ -108,10 +113,12 @@ lnRR_data <- metafor::escalc(data = data_full,
                 )
 
 # Note that lnRR doesn't work with negative means, meaning the negative values produce NaNs :]
+lnRR_data <- na.omit(lnRR_data) # remove the NA values from the data! 
+
 ```
 
 Fitting of multivariate meta-analytic model to data, controlling for sampling variance in lnRR, and including the random effect of study,  observation
-```{r metaAnalyticModel}
+```{r metaAnalyticModel, warning=FALSE}
 MLMA <- metafor::rma.mv(yi = LRR ~ var_LRR, # effect size measure log response ratio with sampling variance as fixed effect
                               V = var_LRR, # sampling variance of LRR
                               # fit model using restricted maximum likelihood (considers degrees freedom, better for small sample sizes)
@@ -122,13 +129,16 @@ MLMA <- metafor::rma.mv(yi = LRR ~ var_LRR, # effect size measure log response r
                                             #, ~1 | Species
                                             ), 
                               test = "t", # use the t test statistic 
-                              data = na.omit(lnRR_data)) # remove the NA values from the data! 
+                              data = lnRR_data) 
 
 summary(MLMA)
+
+
 ```
 
-```{r r2ml_R2calc, include=FALSE}
-# Function copied from orchaRd package, [GitHub Repository](https://github.com/daniel1noble/orchaRd/tree/b8cc44e1f246beaf2f45d0071327d5ab44b083bd)
+```{r orchaRd, include=FALSE}
+
+# Functions copied from orchaRd package, [GitHub Repository](https://github.com/daniel1noble/orchaRd/tree/b8cc44e1f246beaf2f45d0071327d5ab44b083bd)
 r2_ml <- function(model, data, boot = NULL) {
 
   if(all(class(model) %in% c("robust.rma", "rma.mv", "rma", "rma.uni")) == FALSE) {stop("Sorry, you need to fit a metafor model of class robust.rma, rma.mv, rma, rma.uni")}
@@ -172,7 +182,6 @@ return(R2)
 
 }
 
-
 R2_calc <- function(model){
   if(all(class(model) %in% c("robust.rma", "rma.mv", "rma", "rma.uni")) == FALSE) {stop("Sorry, you need to fit a metafor model of class robust.rma, rma.mv, rma, rma.uni")}
   # fixed effect variance
@@ -188,20 +197,1259 @@ R2_calc <- function(model){
   R2s <- c(R2_marginal = R2m, R2_conditional = R2c)
   return(R2s)
 }
+
+orchard_plot <- function(object, mod = "1", group, data, xlab, N = NULL,
+                         alpha = 0.5, angle = 90, cb = TRUE, k = TRUE, g = TRUE,
+                         trunk.size = 3, branch.size = 1.2, twig.size = 0.5,
+                         transfm = c("none", "tanh"), condition.lab = "Condition",
+                         legend.pos = c("bottom.right", "bottom.left",
+                                        "top.right", "top.left",
+                                        "top.out", "bottom.out",
+                                        "none"), # "none" - no legends
+                         k.pos = c("right", "left", "none"),
+                         colour = FALSE,
+                         fill = TRUE,
+                         weights = "prop", by = NULL, at = NULL, upper = TRUE)
+{
+  ## evaluate choices, if not specified it takes the first choice
+     transfm <- match.arg(NULL, choices = transfm)
+  legend.pos <- match.arg(NULL, choices = legend.pos)
+       k.pos <- match.arg(NULL, choices = k.pos)
+
+	if(any(class(object) %in% c("robust.rma", "rma.mv", "rma", "rma.uni"))){
+
+	    if(mod != "1"){
+	    results <-  mod_results(object, mod, group, data, N,
+	                                        by = by, at = at, weights = weights, upper = upper)
+	  } else {
+	    results <-  mod_results(object, mod = "1", group, data, N,
+	                                        by = by, at = at, weights = weights, upper = upper)
+	    }
+	  }
+
+	if(any(class(object) %in% c("orchard"))) {
+			results <- object
+	}
+
+	mod_table <- results$mod_table
+
+  data_trim <- results$data
+  data_trim$moderator <- factor(data_trim$moderator, levels = mod_table$name, labels = mod_table$name)
+
+  data_trim$scale <- (1/sqrt(data_trim[,"vi"]))
+	legend <- "Precision (1/SE)"
+
+	if(any(N != "none")){
+	  data_trim$scale <- data_trim$N
+		  legend <- paste0("Sample Size ($\\textit{N}$)") # we want to use italic
+		  #latex2exp::TeX()
+	}
+
+	if(transfm == "tanh"){
+		                   cols <- sapply(mod_table, is.numeric)
+		mod_table[,cols] <- Zr_to_r(mod_table[,cols])
+		data_trim$yi <- Zr_to_r(data_trim$yi)
+		                  label <- xlab
+	}else{
+		label <- xlab
+	}
+
+	# Add in total effect sizes for each level
+	 mod_table$K <- as.vector(by(data_trim, data_trim[,"moderator"], function(x) length(x[,"yi"])))
+
+	# Add in total levels of a grouping variable (e.g., study ID) within each moderator level.
+	 mod_table$g <- as.vector(num_studies(data_trim, moderator, stdy)[,2])
+
+	 # the number of groups in a moderator & data points
+	 group_no <- length(unique(mod_table[, "name"]))
+
+	 #data_no <- nrow(data)
+
+	# colour blind friendly colours with grey
+	 cbpl <- c("#88CCEE", "#CC6677", "#DDCC77", "#117733", "#332288", "#AA4499", "#44AA99", "#999933", "#882255", "#661100", "#6699CC", "#888888", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7", "#999999")
+
+	 # setting fruit colour
+	 if(colour == TRUE){
+	   color <- as.factor(data_trim$stdy)
+	   color2 <- NULL
+	 }else{
+	   color <- data_trim$mod
+	   color2 <- mod_table$name
+	 }
+
+	 # whether we fill fruit or not
+	 if(fill == TRUE){
+	   fill <- color
+	 }else{
+	     fill <- NULL
+	   }
+
+	 # whether marginal
+	 if(names(mod_table)[2] == "condition"){
+
+	   # the number of levels in the condition
+	   condition_no <- length(unique(mod_table[, "condition"]))
+
+	   plot <- ggplot2::ggplot() +
+	     # pieces of fruit (bee-swarm and bubbles)
+	     ggbeeswarm::geom_quasirandom(data = data_trim, ggplot2::aes(y = yi, x = moderator, size = scale, colour = color, fill = fill), alpha=alpha, shape = 21) +
+
+	     ggplot2::geom_hline(yintercept = 0, linetype = 2, colour = "black", alpha = alpha) +
+	     # creating CI
+	     ggplot2::geom_linerange(data = mod_table, ggplot2::aes(x = name, ymin = lowerCL, ymax = upperCL),
+	                             size = branch.size, position = ggplot2::position_dodge2(width = 0.3)) +
+	     # drowning point estimate and PI
+	     ggplot2::geom_pointrange(data = mod_table, ggplot2::aes(y = estimate, x = name, ymin = lowerPR, ymax = upperPR,  shape = as.factor(condition), fill = color2), size = twig.size, position = ggplot2::position_dodge2(width = 0.3), fatten = trunk.size) +
+	     # this will only work for up to 5 different conditions
+	     # flipping things around (I guess we could do use the same geoms but the below is the original so we should not change)
+	     ggplot2::scale_shape_manual(values =  20 + (1:condition_no)) + ggplot2::coord_flip() +
+	     ggplot2::theme_bw() +
+	     ggplot2::guides(fill = "none", colour = "none") +
+	     ggplot2::theme(legend.position= c(0, 1), legend.justification = c(0, 1)) +
+	     ggplot2::theme(legend.title = ggplot2::element_text(size = 9)) +
+	     ggplot2::theme(legend.direction="horizontal") +
+	     ggplot2::theme(legend.background = ggplot2::element_blank()) +
+	     ggplot2::labs(y = label, x = "", size = latex2exp::TeX(legend)) +
+	     ggplot2::labs(shape = condition.lab) +
+	     ggplot2::theme(axis.text.y = ggplot2::element_text(size = 10, colour ="black",
+	                                                        hjust = 0.5,
+	                                                        angle = angle))
+
+	 } else {
+
+	  plot <- ggplot2::ggplot() +
+	    # pieces of fruit (bee-swarm and bubbles)
+	    ggbeeswarm::geom_quasirandom(data = data_trim, ggplot2::aes(y = yi, x = moderator, size = scale, colour = color, fill = fill), alpha=alpha, shape = 21) +
+
+	    ggplot2::geom_hline(yintercept = 0, linetype = 2, colour = "black", alpha = alpha) +
+	    # creating CI
+	    ggplot2::geom_linerange(data = mod_table, ggplot2::aes(x = name, ymin = lowerCL, ymax = upperCL), size = branch.size) +
+	    # drowning point estimate and PI
+	    ggplot2::geom_pointrange(data = mod_table, ggplot2::aes(y = estimate, x = name,  ymin = lowerPR, ymax = upperPR, fill = color2), size = twig.size, fatten = trunk.size, shape = 21) +
+	    ggplot2::coord_flip() +
+	    ggplot2::theme_bw() +
+	    ggplot2::guides(fill = "none", colour = "none") +
+	    ggplot2::theme(legend.title = ggplot2::element_text(size = 9)) +
+	    ggplot2::theme(legend.direction="horizontal") +
+	    ggplot2::theme(legend.background = ggplot2::element_blank()) +
+	    ggplot2::labs(y = label, x = "", size = latex2exp::TeX(legend)) +
+	    ggplot2::theme(axis.text.y = ggplot2::element_text(size = 10, colour ="black",
+	                                                       hjust = 0.5,
+	                                                       angle = angle)) #+
+	    #ggplot2::theme(legend.position= c(1, 0), legend.justification = c(1, 0))
+
+	 }
+
+	   # adding legend
+	 if(legend.pos == "bottom.right"){
+	   plot <- plot + ggplot2::theme(legend.position= c(1, 0), legend.justification = c(1, 0))
+	 } else if ( legend.pos == "bottom.left") {
+	   plot <- plot + ggplot2::theme(legend.position= c(0, 0), legend.justification = c(0, 0))
+	 } else if ( legend.pos == "top.right") {
+	   plot <- plot + ggplot2::theme(legend.position= c(1, 1), legend.justification = c(1, 1))
+	 } else if (legend.pos == "top.left") {
+	   plot <- plot + ggplot2::theme(legend.position= c(0, 1), legend.justification = c(0, 1))
+	 } else if (legend.pos == "top.out") {
+	   plot <- plot + ggplot2::theme(legend.position="top")
+	 } else if (legend.pos == "bottom.out") {
+	   plot <- plot + ggplot2::theme(legend.position="bottom")
+	 } else if (legend.pos == "none") {
+	   plot <- plot + ggplot2::theme(legend.position="none")
+	 }
+
+	  # putting colors in
+	  if(cb == TRUE){
+	    plot <- plot +
+	      ggplot2::scale_fill_manual(values = cbpl) +
+	      ggplot2::scale_colour_manual(values = cbpl)
+	  }
+
+	  # putting k and g in
+	  if(k == TRUE && g == FALSE && k.pos == "right"){
+	    plot <- plot +
+	      ggplot2::annotate('text', y = (max(data_trim$yi) + (max(data_trim$yi)*0.10)), x = (seq(1, group_no, 1)+0.3),
+	                        label= paste("italic(k)==", mod_table$K[1:group_no]), parse = TRUE, hjust = "right", size = 3.5)
+	  } else if(k == TRUE && g == FALSE && k.pos == "left") {
+	    plot <- plot +  ggplot2::annotate('text', y = (min(data_trim$yi) + (min(data_trim$yi)*0.10)), x = (seq(1, group_no, 1)+0.3),
+	                                      label= paste("italic(k)==", mod_table$K[1:group_no]), parse = TRUE, hjust = "left", size = 3.5)
+	  } else if (k == TRUE && g == TRUE && k.pos == "right"){
+	    # get group numbers for moderator
+	    plot <- plot + ggplot2::annotate('text', y = (max(data_trim$yi) + (max(data_trim$yi)*0.10)), x = (seq(1, group_no, 1)+0.3),
+	                        label= paste("italic(k)==", mod_table$K[1:group_no], "~","(", mod_table$g[1:group_no], ")"),
+	                        parse = TRUE, hjust = "right", size = 3.5)
+	  } else if (k == TRUE && g == TRUE && k.pos == "left"){
+	    # get group numbers for moderator
+	    plot <- plot + ggplot2::annotate('text',  y = (min(data_trim$yi) + (min(data_trim$yi)*0.10)), x = (seq(1, group_no, 1)+0.3),
+	                        label= paste("italic(k)==", mod_table$K[1:group_no], "~","(", mod_table$g[1:group_no], ")"),
+	                        parse = TRUE, hjust = "left", size = 3.5)
+	  }
+
+
+	  return(plot)
+}
+
+Zr_to_r <- function(df){
+	return(sapply(df, tanh))
+}
+
+i2_ml <- function(model, method = c("ratio", "matrix"), data, boot = NULL) {
+
+  if(all(class(model) %in% c("robust.rma", "rma.mv", "rma", "rma.uni")) == FALSE) {stop("Sorry, you need to fit a metafor model of class robust.rma, rma.mv, rma, rma.uni")}
+
+  ## evaluate choices
+  method <- match.arg(method)
+
+  if (method == "matrix") {
+    # Wolfgang Viechtbauer's method
+    I2s <- matrix_i2(model)
+  } else {
+    # Nakagawa & Santos (2012)
+    I2s <- ratio_i2(model)
+  }
+
+  if(!is.null(boot)){
+    # Simulate the vector of effect sizes
+    sim <- metafor::simulate.rma(model, nsim=boot)
+
+    # Get formula from model object.
+    random_formula <- model$random
+      mods_formula <- metafor::formula.rma(model, type = "mods") #in case moderators
+                vi <- model$vi
+
+    # Paramatric bootsrap
+                pb <- progress::progress_bar$new(total = boot,
+                                                 format = "Bootstrapping [:bar] :percent ETA: :eta",
+                                                 show_after = 0)
+
+     I2_each <- sapply(sim, function(ysim) {
+
+              # The model
+             tmp <- metafor::rma.mv( ysim, vi,
+                             mods = mods_formula,
+                           random = random_formula,
+                             data = data)
+             pb$tick()
+             Sys.sleep(1 / boot)
+
+            if(method == "matrix"){
+              I2 <- matrix_i2(tmp)
+            } else {
+              I2 <- ratio_i2(tmp)
+            }
+
+             return(I2) })
+
+      # Summarise the bootstrapped distribution.
+       I2s_each_95 <- data.frame(t(apply(I2_each, 1, stats::quantile, probs=c(0.5, .025, .975))))
+               I2s <-  round(I2s_each_95, digits = 3)
+      colnames(I2s) = c("Est.", "2.5%", "97.5%")
+  }
+
+  return(I2s)
+}
+
+matrix_i2 <- function(model){
+
+  if(all(class(model) %in% c("robust.rma", "rma.mv", "rma", "rma.uni")) == FALSE) {stop("Sorry, you need to fit a metafor model of class robust.rma, rma.mv, rma, rma.uni")}
+
+    W <- solve(model$V)
+    X <- model.matrix(model)
+    P <- W - W %*% X %*% solve(t(X) %*% W %*% X) %*% t(X) %*% W
+    I2_total <- 100* (sum(model$sigma2) / (sum(model$sigma2) + (model$k - model$p) / sum(diag(P))))
+    I2_each <- 100* (model$sigma2 / (sum(model$sigma2) + (model$k - model$p) / sum(diag(P))))
+    names(I2_each) <- paste0("I2_", model$s.names)
+    names(I2_total) <- "I2_Total"
+    I2s <- c(I2_total, I2_each)
+    return(I2s)
+}
+
+ratio_i2 <- function(model){
+
+  if(all(class(model) %in% c("robust.rma", "rma.mv", "rma", "rma.uni")) == FALSE) {stop("Sorry, you need to fit a metafor model of class robust.rma, rma.mv, rma, rma.uni")}
+
+  # sigma2_v = typical sampling error variance
+  sigma2_v <- sum(1 / model$vi) * (model$k - 1) /
+              (sum(1 / model$vi)^2 - sum((1 / model$vi)^2))
+
+  # s^2_t = total variance
+  I2_total <- 100 * (sum(model$sigma2) / (sum(model$sigma2) + sigma2_v))
+   I2_each <- 100 * (model$sigma2 / (sum(model$sigma2) + sigma2_v))
+  names(I2_each) <- paste0("I2_", model$s.names)
+  names(I2_total) <- "I2_Total"
+
+  I2s <- c(I2_total, I2_each)
+  return(I2s)
+}
+
+mod_results <- function(model, mod = "1", group, data, N = NULL,  weights = "prop", by = NULL, at = NULL, subset = FALSE, upper = TRUE, ...){
+
+  if(any(grepl("-1|0", as.character(model$formula.mods)))){
+    warning("It is recommended that you fit the model with an intercept. Unanticipated errors can occur otherwise.")
+  }
+
+  if(missing(model)){
+    stop("Please specify the 'model' argument by providing rma.mv or rma model object. See ?mod_results")
+  }
+
+  if(all(class(model) %in% c("robust.rma", "rma.mv", "rma", "rma.uni")) == FALSE) {stop("Sorry, you need to fit a metafor model of class rma.mv, rma, or robust.rma")}
+
+  if(missing(group)){
+    stop("Please specify the 'group' argument by providing the name of the grouping variable. See ?mod_results")
+  }
+
+  if(missing(data)){
+    stop("Please specify the 'data' argument by providing the data used to fit the model. See ?mod_results")
+  }
+
+  if(is.null(formula(model))){
+    #model <- stats::update(model, "~1")
+    model$formula.mods <- ~ 1
+    dat_tmp <- data$`1` <- "Intrcpt"
+    model$data <- dat_tmp
+  } else{
+    model$data <- data
+  }
+
+  if(model$test == "t"){
+    df_mod = as.numeric(model$ddf[[1]])
+  } else{
+    df_mod = 1.0e6 # almost identical to z value
+  }
+
+  if(is.character(data[[mod]]) | is.factor(data[[mod]]) | is.null(data[[mod]])) {
+    grid <- emmeans::qdrg(formula = formula(model), at = at, data = model$data, coef = model$b,
+                          vcov = vcov(model), df = model$k-1) ## NOTE: Added data argument emmeans >vers 1.7.4. Object is unstable so feeding in the relevant arguments from model object directly. Note, we should think about df!
+    mm <- emmeans::emmeans(grid, specs = mod, df = df_mod, by = by, weights = weights, ...)
+
+    # getting prediction intervals
+    mm_pi <- pred_interval_esmeans(model, mm, mod = mod)
+
+
+    if(is.null(by)){
+      mod_table <- data.frame(name = firstup(as.character(mm_pi[,1]), upper = upper),
+                              estimate = mm_pi[,"emmean"],
+                              lowerCL = mm_pi[,"lower.CL"],
+                              upperCL = mm_pi[,"upper.CL"],
+                              lowerPR = mm_pi[,"lower.PI"],
+                              upperPR = mm_pi[,"upper.PI"])
+
+    } else{
+      mod_table <- data.frame(name = firstup(as.character(mm_pi[,1]), upper = upper),
+                              condition = mm_pi[,2], estimate = mm_pi[,"emmean"],
+                              lowerCL = mm_pi[,"lower.CL"],
+                              upperCL = mm_pi[,"upper.CL"],
+                              lowerPR = mm_pi[,"lower.PI"],
+                              upperPR = mm_pi[,"upper.PI"])
+    }
+
+    # Extract data
+    data2 <- get_data_raw(model, mod, group, N, data, at = at, subset)
+
+    mod_table$name <- factor(mod_table$name,
+                             levels = mod_table$name,
+                             labels = mod_table$name)
+
+  } else{
+    at2 <- list(mod = seq(min(data[,mod], na.rm = TRUE), max(data[,mod], na.rm = TRUE), length.out = 100))
+    names(at2) <- mod
+    grid <- emmeans::qdrg(formula = formula(model), data = model$data, coef = model$b,
+                          vcov = vcov(model), df = model$k-1, at = c(at2, at))  # getting 100 points. Fixing this to make it more general
+    mm <- emmeans::emmeans(grid, specs = mod, by = c(mod, by), weights = weights, df = df_mod)
+
+    # getting prediction intervals
+    mm_pi <- pred_interval_esmeans(model, mm, mod = mod)
+
+    if(is.null(by)){
+      mod_table <- data.frame(moderator = mm_pi[,1],
+                              estimate = mm_pi[,"emmean"],
+                              lowerCL = mm_pi[,"lower.CL"],
+                              upperCL = mm_pi[,"upper.CL"],
+                              lowerPR = mm_pi[,"lower.PI"],
+                              upperPR = mm_pi[,"upper.PI"])
+    } else{
+      mod_table <- data.frame(moderator = mm_pi[,1],
+                              condition = mm_pi[,2],
+                              estimate = mm_pi[,"emmean"],
+                              lowerCL = mm_pi[,"lower.CL"],
+                              upperCL = mm_pi[,"upper.CL"],
+                              lowerPR = mm_pi[,"lower.PI"],
+                              upperPR = mm_pi[,"upper.PI"])
+    }
+
+    # extract data
+    data2 <- get_data_raw_cont(model, mod, group, N, data, by = by)
+
+  }
+
+
+  output <- list(mod_table = mod_table,
+                 data = data2)
+
+  class(output) <- c("orchard", "data.frame")
+
+  return(output)
+}
+
+
+pred_interval_esmeans <- function(model, mm, mod, ...){
+
+        tmp <- summary(mm)
+        tmp <- tmp[ , ]
+  test.stat <- stats::qt(0.975, tmp$df[[1]])
+
+  if(length(model$tau2) <= 1){ # including gamma2
+                 sigmas <- sum(model$sigma2)
+                     PI <- test.stat * base::sqrt(tmp$SE^2 + sigmas)
+        } else {
+            sigmas <- sum(model$sigma2)
+            taus   <- model$tau2
+                 w <- model$g.levels.k
+
+            if(mod == "1"){
+              tau <- weighted_var(taus, weights = w)
+                     PI <- test.stat * sqrt(tmp$SE^2 + sigmas + tau)
+
+            } else {
+               PI <- test.stat * sqrt(tmp$SE^2 + sigmas + taus)
+            }
+        }
+
+  tmp$lower.PI <- tmp$emmean - PI
+  tmp$upper.PI <- tmp$emmean + PI
+
+  # renaming "overall" to ""
+  if(tmp[1,1] == "overall"){tmp[,1] <- "intrcpt"}
+
+return(tmp)
+}
+
+
+get_data_raw <- function(model, mod, group, N = NULL, data, at = NULL, subset = TRUE){
+  if(missing(group)){
+    stop("Please specify the 'group' argument by providing the name of the grouping variable. See ?mod_results")
+  }
+  if(missing(data)){
+    stop("Please specify the 'data' argument by providing the data used to fit the model. See ?mod_results")
+  }
+  # Extract data
+  # Check first if missing data exists
+  if(length(attr(model$X, "dimnames")[[1]]) > 0){
+    # full model delete missing values so need to adjust
+    position <- attr(model$X, "dimnames")[[1]]
+    data <- data[position, ] }
+  if(!is.null(at) & subset){
+    # Find the at slot in list that pertains to the moderator and extract levels
+    at_mod <- at[[mod]]
+    position2 <- which(data[,mod] %in% at_mod)
+    # Subset the data to only the levels in the moderator
+    data <- data[position2,]
+    yi <- model$yi[position2]
+    vi <- model$vi[position2]
+    type <- attr(model$yi, "measure")
+  } else {
+    # Extract effect sizes
+    yi <- model$yi
+    vi <- model$vi
+    type <- attr(model$yi, "measure")
+  }
+  if(mod == "1"){
+    moderator <- "Intrcpt"
+  }else{
+    # Get moderator
+    moderator <- as.character(data[[mod]]) # Could default to base instead of tidy
+    moderator <- firstup(moderator)
+  }
+  # Extract study grouping variable to calculate the
+  stdy <- data[[group]] # Could default to base instead of tidy
+  data_reorg <- data.frame(yi, vi, moderator, stdy, type)
+  #names(data_reorg)[4] <- "stdy" # sometimes stdy gets replaced by group's names
+  row.names(data_reorg) <- 1:nrow(data_reorg)
+
+  if(is.null(N) == FALSE){
+    data_reorg$N <- data[ ,N]
+  }
+
+  return(data_reorg)
+}
+
+
+
+get_data_raw_cont <- function(model, mod, group, N = NULL, data, by){
+  if(missing(group)){
+    stop("Please specify the 'group' argument by providing the name of the grouping variable. See ?mod_results")
+  }
+  if(missing(data)){
+    stop("Please specify the 'data' argument by providing the data used to fit the model. See ?mod_results")
+  }
+  # Extract data
+  # Check first if missing data exists
+  if(length(attr(model$X, "dimnames")[[1]]) > 0){
+    # full model delete missing values so need to adjust
+    position <- attr(model$X, "dimnames")[[1]]
+    data <- data[position, ] }
+  # Extract effect sizes
+  yi <- model$yi
+  vi <- model$vi
+  type <- attr(model$yi, "measure")
+  # Get moderator
+  moderator <- data[[mod]] # Could default to base instead of tidy
+  #names(moderator) <  "moderator"
+  if(is.null(by)){
+  condition <- data[ , by]
+  }else{
+    condition <- data[[by]]
+  }
+  #names(condition) <  "condition"
+  # Extract study grouping variable to calculate the
+  stdy <- data[[group]] # Could default to base instead of tidy
+  data_reorg <- data.frame(yi, vi, moderator, condition, stdy, type)
+  # if(!is.na(names(data_reorg)[names(data_reorg) == by]) == TRUE) {  ## FAILING HERE
+  #   names(data_reorg)[names(data_reorg) == by] <- "condition"
+  # }
+  #names(data_reorg)[5] <- "stdy" # sometimes stdy gets replaced by group's names
+  row.names(data_reorg) <- 1:nrow(data_reorg)
+
+  if(is.null(N) == FALSE){
+    data_reorg$N <- data[ ,N]
+  }
+
+  return(data_reorg)
+}
+
+
+firstup <- function(x, upper = TRUE) {
+        if(upper){
+        substr(x, 1, 1) <- toupper(substr(x, 1, 1))
+        x
+        } else{ x }
+      }
+
+print.orchard <- function(x, ...){
+    return(print(x$mod_table))
+}
+
+weighted_var <- function(x, weights){
+    weight_var <- sum(x * weights) / sum(weights)
+    return(weight_var)
+}
+
+num_studies <- function(data, mod, group){
+
+  # Summarize the number of studies within each level of moderator
+   table <- data        %>%
+            dplyr::group_by({{mod}}) %>%
+            dplyr::summarise(stdy = length(unique({{group}})))
+
+   table <- table[!is.na(table$moderator),]
+  # Rename, and return
+    colnames(table) <- c("Parameter", "Num_Studies")
+      return(data.frame(table))
+
+}
+
+submerge <- function(object1, object2, ..., mix = FALSE){
+  orchard_list <- list(object1, object2, ...)
+  
+  len <- length(orchard_list)
+  # merging tables
+  tables <- lapply(orchard_list, function(x) x$mod_table)
+  tables <- do.call("rbind", tables)
+  
+  # merging data
+  ## checking moderator names are the same or not
+  datas <- lapply(orchard_list, function(x) x$data)
+  datas <- do.call("rbind", datas)
+  
+  # renaming 
+  if(mix == TRUE){
+  names <- lapply(orchard_list, function(x) x$data$moderator)
+  names <- as.vector(unlist(mapply(function(x, y) paste0(x, y), x = names, y = 1:len)))
+  datas$moderator <- factor(names)
+  tables$name <- levels(factor(names))
+  }
+  
+  model_results <- list(mod_table = tables, data = datas)
+  
+  class(model_results) <- "orchard"
+  
+  return(model_results)
+  
+}
+
+caterpillars <- function(object, mod = "1", data, group, xlab, overall = TRUE, transfm = c("none", "tanh"), k = TRUE, g = TRUE, at = NULL, by = NULL, weights = "prop") {
+
+  if(any(class(object) %in% c("rma.mv", "rma"))){
+
+    if(mod != "1"){
+      results <-  orchaRd::mod_results(object, mod, group, data,
+                                       by = by, at = at, weights = weights)
+    } else {
+      results <-  orchaRd::mod_results(object, mod = "1", group, data,
+                                       by = by, at = at, weights = weights)
+    }
+  }
+
+  if (any(class(object) %in% c("orchard"))) {results <- object}
+
+       ## evaluate choices
+  transfm <- match.arg(transfm) # if not sepcificed it takes the first choice
+
+  # meta-analytic results
+  mod_table <- results$mod_table
+
+  # data set
+  data <- results$data
+  data$lower <- data$yi - stats::qnorm(0.975)*sqrt(data$vi)
+  data$upper <- data$yi + stats::qnorm(0.975)*sqrt(data$vi)
+
+  if(transfm == "tanh"){
+    cols <- sapply(mod_table, is.numeric)
+    mod_table[,cols] <- Zr_to_r(mod_table[,cols])
+    data$yi <- Zr_to_r(data$yi)
+    data$lower <- Zr_to_r(data$lower)
+    data$upper <- Zr_to_r(data$upper)
+    label <- xlab
+  }else{
+    label <- xlab
+  }
+
+  if("Intrcpt" %in% mod_table$name){
+    mod_table$name <- replace(as.vector(mod_table$name), which(mod_table$name == "Intrcpt"), "Overall")
+  }
+
+  # adding moderator names
+  data$moderator <- factor(data$moderator, labels = mod_table$name)
+
+  # data frame for the meta-analytic results
+  mod_table$K <- as.vector(by(data, data[,"moderator"], function(x) length(x[,"yi"])))
+
+  # Add in total levels of a grouping variable (e.g., study ID) within each moderator level.
+  mod_table$g <- as.vector(num_studies(data, moderator, stdy)[,2])
+
+  # the number of groups in a moderator & data points
+  group_no <- nrow(mod_table)
+  data_no <- nrow(data)
+
+  # use dplyr here - need to change....
+  # Dan can you make this basic R code - maybe I got it
+  # data <- data[order(data$moderator, -data$yi),]
+  data <- data %>% dplyr::group_by(moderator) %>% dplyr::arrange(moderator, dplyr::desc(yi)) %>%
+    dplyr::ungroup() %>%
+    dplyr::mutate(Y = 1:data_no +
+             unlist(mapply(function(x, y) rep(x*6 , y) , x = 1:group_no, y = mod_table$K))
+    ) %>%
+    data.frame()
+
+  # mod ID
+  mod_table$Y <- data %>% dplyr::group_by(moderator) %>%
+    dplyr::summarise(Y = dplyr::first(Y)) %>%
+    dplyr::select(Y) %>% t() %>% as.vector() -2
+
+  # preparing for diamons for summary
+  # modified from internal_viz_classicforest() from the R package, metaviz
+  sum_data <- data.frame("x.diamond" = c(mod_table$lowerCL,
+                                         mod_table$estimate ,
+                                         mod_table$upperCL,
+                                         mod_table$estimate ),
+                         "y.diamond" = c(mod_table$Y,
+                                         mod_table$Y + 1.2,
+                                         mod_table$Y,
+                                         mod_table$Y - 1.2),
+                         "moderator" = rep(mod_table$name, times = 4)
+  )
+
+  # make caterpillars plot
+  plot <- ggplot2::ggplot(data = data, ggplot2::aes(x = yi, y = Y)) +
+    # 95 % CI
+    ggplot2::geom_errorbarh(ggplot2::aes(xmin = lower, xmax = upper),
+                            colour = "#00CD00", height = 0, show.legend = FALSE, size = 0.5, alpha = 0.6) +
+    ggplot2::geom_vline(xintercept = 0, linetype = 2, colour = "black", alpha = 0.5) +
+    # creating dots for point estimates
+    ggplot2::geom_point(colour = "#FFD700", size = 1) +
+    # creating 95% prediction intervals
+    ggplot2::geom_segment(data = mod_table, ggplot2::aes(x = lowerPR, y = Y, xend = upperPR, yend = Y, group = name)) +
+    # creating diamonsts (95% CI)
+    ggplot2::geom_polygon(data = sum_data, ggplot2::aes(x = x.diamond, y = y.diamond, group = moderator), fill = "red") +
+    #ggplot2::facet_wrap(~moderator, scales = "free_y", nrow = GN,  strip.position = "left") + # using facet_wrap - does not really work well
+    ggplot2::theme_bw() +
+    ggplot2::theme(strip.text.y = ggplot2::element_text(angle = 0, size = 8),# margin = margin(t=15, r=15, b=15, l=15)),
+                   strip.background = ggplot2::element_rect(colour = NULL,
+                                                   linetype = "blank",
+                                                   fill = "gray90"),
+                   axis.text.y = ggplot2::element_blank(),
+                   axis.ticks.y = ggplot2::element_blank()) +
+    ggplot2::labs(x = label, y = "", parse = TRUE) +
+
+    ggplot2::annotate('text', x = min(data$lower)*0.975, y = mod_table$Y,
+                      label= mod_table$name, hjust = "left", size = 3.5) +
+    ggplot2::coord_cartesian(xlim = c(min(data$lower)*1.05, max(data$upper)*1.05),
+                    ylim = c((min(data$Y)-10), (max(data$Y)+4))
+                    , expand = F)
+
+  # putting k in
+  if(k == TRUE && g == FALSE){
+    plot <- plot +
+      ggplot2::annotate('text', x = max(data$upper)*0.975, y = mod_table$Y-1.7,
+                        label= paste("italic(k)==", mod_table$K), parse = TRUE, hjust = "right", size = 3.5)
+  }
+
+  # putting groups
+  if(k == TRUE && g == TRUE){
+    # get group numbers for moderator
+    plot <- plot +
+      ggplot2::annotate('text', x = max(data$upper)*0.975, y = mod_table$Y-1.7,
+                        label= paste("italic(k)==", mod_table$K[1:group_no], "~~","(", mod_table$g[1:group_no], ")"), parse = TRUE, hjust = "right", size = 3.5)
+  }
+
+
+  return(plot)
+}
+
+bubble_plot <- function(object, mod, group = NULL, data,
+                        xlab = "Moderator", ylab = "Effect size", N = "none",
+                        alpha = 0.5, cb = TRUE, k = TRUE, g = FALSE,
+                        est.lwd = 1, ci.lwd = 0.5, pi.lwd = 0.5,
+                        est.col = "black", ci.col = "black", pi.col = "black",
+                        legend.pos = c("top.left", "top.right",
+                                       "bottom.right", "bottom.left",
+                                       "top.out", "bottom.out",
+                                       "none"),
+                        k.pos = c("top.right", "top.left",
+                                  "bottom.right", "bottom.left",
+                                  "none"),
+                        condition.nrow = 2,
+                         #condition.lab = "Condition",
+                        weights = "prop", by = NULL, at = NULL)
+  {
+  legend.pos <- match.arg(NULL, choices = legend.pos)
+  k.pos <- match.arg(NULL, choices = k.pos)
+  #facet <- match.arg(NULL, choices = facet)
+
+  if(missing(data)){
+         stop("Please specify the 'data' argument by providing the data used to fit the model. See ?mod_results")
+       }
+
+  if(any(grepl(mod, colnames(data))) == FALSE){
+    error("The moderator specified is not found in your data. Did you transform the variable in the model and forget to add it to your dataframe?")
+  }
+
+  if(any(class(object) %in% c("robust.rma", "rma.mv", "rma", "rma.uni"))){
+
+    if(mod != "1"){
+      results <-  orchaRd::mod_results(object, mod, group, data,
+                                       by = by, at = at, weights = weights)
+    } else {
+      results <-  orchaRd::mod_results(object, mod = "1", group, data,
+                                       by = by, at = at, weights = weights)
+    }
+  }
+
+  if(any(class(object) %in% c("orchard"))) {
+    results <- object
+  }
+
+  mod_table <- results$mod_table
+
+  data_trim <- results$data
+  #data_trim$moderator <- factor(data_trim$moderator, levels = mod_table$name, labels = mod_table$name)
+
+  data_trim$scale <- (1/sqrt(data_trim[,"vi"]))
+  legend <- "Precision (1/SE)"
+
+  if(any(N != "none")){
+    data_trim$scale <- data_trim$N
+    legend <- paste0("Sample Size ($\\textit{N}$)") # we want to use italic
+  }
+
+  label <- xlab
+  # if(transfm == "tanh"){
+  #   cols <- sapply(mod_table, is.numeric)
+  #   mod_table[,cols] <- Zr_to_r(mod_table[,cols])
+  #   data_trim$yi <- Zr_to_r(data_trim$yi)
+  #   label <- xlab
+  # }else{
+  #   label <- xlab
+  # }
+
+  if(is.null(data_trim$condition) == TRUE){
+  # the number of effect sizes
+  effect_num <- nrow(data_trim)
+
+  # Add in total levels of a grouping variable (e.g., study ID) within each moderator level.
+  group_num <- length(unique(data_trim$stdy))
+
+  dat_text <- data.frame(K = effect_num, G = group_num)
+
+  }else{
+  effect_num <- as.vector(by(data_trim, data_trim[,"condition"], function(x) length(x[,"yi"])))
+
+  # Add in total levels of a grouping variable (e.g., study ID) within each moderator level.
+  #group_num <- c(2,4)
+  group_num <- as.vector(by(data_trim, data_trim[,"condition"], function(x) length(unique(x[,"stdy"]))))
+
+  dat_text <- data.frame(K = effect_num, G = group_num, condition = as.vector(unique(data_trim$condition)))
+  }
+  # the number of groups in a moderator & data points
+  #group_no <- length(unique(mod_table[, "name"]))
+
+  #data_no <- nrow(data)
+
+  # # colour blind friendly colours with grey
+  # cbpl <- c("#88CCEE", "#CC6677", "#DDCC77", "#117733", "#332288", "#AA4499", "#44AA99", "#999933", "#882255", "#661100", "#6699CC", "#888888", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7", "#999999")
+
+  if(is.null(data_trim$condition) == TRUE){
+   plot <-ggplot2::ggplot() +
+    # putting bubbles
+     ggplot2::geom_point(data = data_trim, ggplot2::aes(x = moderator, y = yi, size = scale), shape = 21, alpha = alpha, fill = "grey90" ) +
+    # prediction interval
+     ggplot2::geom_smooth(data = mod_table, ggplot2::aes(x = moderator, y = lowerPR), method =  "loess", formula = y~x, se = FALSE, lty =  "dotted", lwd = pi.lwd, colour = pi.col) +
+     ggplot2::geom_smooth(data = mod_table, ggplot2::aes(x = moderator, y = upperPR), method =  "loess", formula = y~x, se = FALSE, lty = "dotted", lwd = pi.lwd, colour = pi.col) +
+     # confidence interval
+     ggplot2::geom_smooth(data = mod_table, ggplot2::aes(x = moderator, y = lowerCL), method =  "loess", formula = y~x, se = FALSE,lty = "dashed", lwd = ci.lwd, colour = ci.col) +
+     ggplot2::geom_smooth(data = mod_table, ggplot2::aes(x = moderator, y = upperCL), method =  "loess", formula = y~x, se = FALSE, lty ="dashed", lwd = ci.lwd, colour = ci.col) +
+     # main line
+     ggplot2::geom_smooth(data = mod_table, ggplot2::aes(x = moderator, y = estimate), method =  "loess", formula = y~x, se = FALSE, lwd = est.lwd, colour = est.col) +
+    #facet_grid(rows = vars(condition)) +
+     ggplot2::labs(x = xlab, y = ylab, size = legend, parse = TRUE) +
+     ggplot2::guides(fill = "none", colour = "none") +
+    # themes
+     ggplot2::theme_bw() +
+    #theme(legend.position= c(1, 1), legend.justification = c(1, 1)) +
+     ggplot2::theme(legend.direction="horizontal") +
+    #theme(legend.background = element_rect(fill = "white", colour = "black")) +
+     ggplot2::theme(legend.background = ggplot2::element_blank()) +
+     ggplot2::theme(axis.text.y = ggplot2::element_text(size = 10, colour ="black", hjust = 0.5, angle = 90))
+  } else if(is.character(data_trim$condition) == TRUE || is.factor(data_trim$condition) == TRUE){
+    plot <-ggplot2::ggplot() +
+      # putting bubbles
+      ggplot2::geom_point(data = data_trim, ggplot2::aes(x = moderator, y = yi, size = scale, fill = condition), shape = 21, alpha = alpha) +
+      # prediction interval
+      ggplot2::geom_smooth(data = mod_table, ggplot2::aes(x = moderator, y = lowerPR), method =  "loess", formula = y~x, se = FALSE, lty =  "dotted", lwd = pi.lwd, colour = pi.col) +
+      ggplot2::geom_smooth(data = mod_table, ggplot2::aes(x = moderator, y = upperPR), method =  "loess", formula = y~x,se = FALSE, lty = "dotted", lwd = pi.lwd, colour = pi.col) +
+      # confidence interval
+      ggplot2::geom_smooth(data = mod_table, ggplot2::aes(x = moderator, y = lowerCL), method =  "loess", formula = y~x,se = FALSE,lty = "dashed", lwd = ci.lwd, colour = ci.col) +
+      ggplot2::geom_smooth(data = mod_table, ggplot2::aes(x = moderator, y = upperCL), method =  "loess", formula = y~x,se = FALSE, lty ="dashed", lwd = ci.lwd, colour = ci.col) +
+      # main line
+      ggplot2::geom_smooth(data = mod_table, ggplot2::aes(x = moderator, y = estimate), method =  "loess", formula = y~x, se = FALSE, lwd = est.lwd, colour = est.col) +
+      ggplot2::facet_wrap(ggplot2::vars(condition), nrow = condition.nrow) +
+      ggplot2::labs(x = xlab, y = ylab, size = legend, parse = TRUE) +
+      ggplot2::guides(fill = "none", colour = "none") +
+      # themses
+      ggplot2::theme_bw() +
+      #theme(legend.position= c(1, 1), legend.justification = c(1, 1)) +
+      ggplot2::theme(legend.direction="horizontal") +
+      #theme(legend.background = element_rect(fill = "white", colour = "black")) +
+      ggplot2::theme(legend.background = ggplot2::element_blank()) +
+      ggplot2::theme(axis.text.y = ggplot2::element_text(size = 10, colour ="black", hjust = 0.5, angle = 90))
+
+    # if(facet == "rows"){
+    #   plot <- plot + facet_grid(rows = vars(condition))
+    # } else{
+    #   plot <- plot + facet_grid(cols = vars(condition))
+    # }
+
+
+  } else{
+    plot <-ggplot2::ggplot() +
+      # putting bubbles
+      #geom_point(data = data, aes(x = moderator, y = yi, size = scale), shape = 21, alpha = alpha, fill = "grey90" ) +
+      # prediction interval
+      ggplot2::geom_smooth(data = mod_table, ggplot2::aes(x = moderator, y = lowerPR), method =  "loess", formula = y~x, se = FALSE, lty =  "dotted", lwd = pi.lwd, colour = pi.col) +
+      ggplot2::geom_smooth(data = mod_table, ggplot2::aes(x = moderator, y = upperPR), method =  "loess", formula = y~x,se = FALSE, lty = "dotted", lwd = pi.lwd, colour = pi.col) +
+      # confidence interval
+      ggplot2::geom_smooth(data = mod_table, ggplot2::aes(x = moderator, y = lowerCL), method =  "loess", formula = y~x,se = FALSE,lty = "dashed", lwd = ci.lwd, colour = ci.col) +
+      ggplot2::geom_smooth(data = mod_table, ggplot2::aes(x = moderator, y = upperCL), method =  "loess", formula = y~x,se = FALSE, lty ="dashed", lwd = ci.lwd, colour = ci.col) +
+      # main line
+      ggplot2::geom_smooth(data = mod_table, ggplot2::aes(x = moderator, y = estimate), method =  "loess", formula = y~x, se = FALSE, lwd = est.lwd, colour = est.col) +
+      ggplot2::facet_wrap(ggplot2::vars(condition), nrow = condition.nrow) +
+      ggplot2::labs(x = xlab, y = ylab, size = legend, parse = TRUE) +
+      ggplot2::guides(fill = "none", colour = "none") +
+      # themses
+      ggplot2::theme_bw() # +
+      #theme(legend.position= c(1, 1), legend.justification = c(1, 1)) +
+      # theme(legend.direction="horizontal") +
+      # #theme(legend.background = element_rect(fill = "white", colour = "black")) +
+      # theme(legend.background = element_blank()) +
+      # theme(axis.text.y = element_text(size = 10, colour ="black", hjust = 0.5, angle = 90))
+  }
+
+  # adding legend
+  if(legend.pos == "bottom.right"){
+    plot <- plot + ggplot2::theme(legend.position= c(1, 0), legend.justification = c(1, 0))
+  } else if ( legend.pos == "bottom.left") {
+    plot <- plot + ggplot2::theme(legend.position= c(0, 0), legend.justification = c(0, 0))
+  } else if ( legend.pos == "top.right") {
+    plot <- plot + ggplot2::theme(legend.position= c(1, 1), legend.justification = c(1, 1))
+  } else if (legend.pos == "top.left") {
+    plot <- plot + ggplot2::theme(legend.position= c(0, 1), legend.justification = c(0, 1))
+  } else if (legend.pos == "top.out") {
+    plot <- plot + ggplot2::theme(legend.position="top")
+  } else if (legend.pos == "bottom.out") {
+    plot <- plot + ggplot2::theme(legend.position="bottom")
+  } else if (legend.pos == "none") {
+    plot <- plot + ggplot2::theme(legend.position="none")
+  }
+
+  # putting k and g in
+  # c("top.right", "top.left", "bottom.right", "bottom.left","none")
+  if(k == TRUE && g == FALSE && k.pos == "top.right"){
+    plot <- plot +
+      ggplot2::geom_text(data = dat_text,
+                        mapping = ggplot2::aes(x = Inf, y = Inf),
+                        label =  paste("italic(k)==", dat_text$K),
+                        parse = TRUE,
+                        hjust   = 2,
+                        vjust   = 2.5
+                        )
+
+  } else if(k == TRUE && g == FALSE && k.pos == "top.left") {
+    plot <- plot +
+      ggplot2::geom_text(data = dat_text,
+                         mapping = ggplot2::aes(x = -Inf, y = Inf),
+                         label =  paste("italic(k)==", dat_text$K),
+                         parse = TRUE,
+                         hjust   = -0.5,
+                         vjust   = 2.5
+      )
+  } else if(k == TRUE && g == FALSE && k.pos == "bottom.right") {
+    plot <- plot +
+      ggplot2::geom_text(data = dat_text,
+                         mapping = ggplot2::aes(x = Inf, y = -Inf),
+                         label =  paste("italic(k)==", dat_text$K),
+                         parse = TRUE,
+                         hjust   = 2,
+                         vjust   = -1.5
+      )
+  } else if (k == TRUE && g == FALSE && k.pos == "bottom.left"){
+    plot <- plot +
+      ggplot2::geom_text(data = dat_text,
+                         mapping = ggplot2::aes(x = -Inf, y = -Inf),
+                         label =  paste("italic(k)==", dat_text$K),
+                         parse = TRUE,
+                         hjust   = -0.5,
+                         vjust   = -1.5
+      )
+    # below get g ----
+
+  } else if (k == TRUE && g == TRUE && k.pos == "top.right"){
+    # get group numbers for moderator
+    plot <- plot +
+      ggplot2::geom_text(data = dat_text,
+                                   mapping = ggplot2::aes(x = Inf, y = Inf),
+                                   label =  paste("italic(k)==",
+                                                  dat_text$K,
+                                                         "~","(", dat_text$G, ")"),
+                                   parse = TRUE,
+                                   hjust   = 1.5,
+                                   vjust   = 2)
+
+  } else if (k == TRUE && g == TRUE && k.pos == "top.left"){
+    # get group numbers for moderator
+    plot <- plot +
+      ggplot2::geom_text(data = dat_text,
+                         mapping = ggplot2::aes(x = -Inf, y = Inf),
+                         label =  paste("italic(k)==",
+                                        dat_text$K,
+                                        "~","(", dat_text$G, ")"),
+                         parse = TRUE,
+                         hjust   = -0.5,
+                         vjust   = 2)
+  } else if (k == TRUE && g == TRUE && k.pos == "bottom.right"){
+    # get group numbers for moderator
+    plot <- plot +
+      ggplot2::geom_text(data = dat_text,
+                         mapping = ggplot2::aes(x = Inf, y = -Inf),
+                         label =  paste("italic(k)==",
+                                        dat_text$K,
+                                        "~","(", dat_text$G, ")"),
+                         parse = TRUE,
+                         hjust   = 1.5,
+                         vjust   = -0.5)
+  } else if (k == TRUE && g == TRUE && k.pos == "bottom.left"){
+    # get group numbers for moderator
+    plot <- plot +
+      ggplot2::geom_text(data = dat_text,
+                         mapping = ggplot2::aes(x = -Inf, y = -Inf),
+                         label =  paste("italic(k)==",
+                                        dat_text$K,
+                                        "~","(", dat_text$G, ")"),
+                         parse = TRUE,
+                         hjust   = -0.5,
+                         vjust   = -0.5)
+  }
+
+  # # putting colors in
+  # if(cb == TRUE){
+  #   plot <- plot +
+  #     ggplot2::scale_fill_manual(values=cbpl) +
+  #     ggplot2::scale_colour_manual(values=cbpl)
+  # }
+
+  return(plot)
+}
+
+
+
 ```
 
-lnRR variation explained by model 
-```{r}
+Calculation of R^2^, the variation in lnRR explained by model 
+```{r r2LnRR, echo=FALSE}
 r2 <- r2_ml(MLMA) # calculate r2 for multilevel model using function from orchaRd package
+
+# create table of r2 values
+r2_flex <- flextable(tibble("R2 Marginal" = r2[1],
+                  "R2 Conditional" = r2[2] ))
+
+r2_flex <- set_caption(r2_flex, 
+            caption = "Variation in effect size explained by the sampling variance and full model")
+r2_flex
 ```
 
-```{r funnelLogRR, echo=FALSE}
+Calculate the proportion of total heterogeneity, I^2^~total~
+```{r i2, message=FALSE}
+# calculate proportion of heterogeneity
+i2_vals <- i2_ml(MLMA)
+
+# make table of i^2 estimate
+i2 <- tibble(type = firstup(gsub("I2_", "", names(i2_vals))), I2 = i2_vals)
+i2_flex <- flextable(i2) %>%
+    align(part = "header", align = "center") %>%
+    compose(part = "header", j = 1, value = as_paragraph(as_b("Type"))) %>%
+    compose(part = "header", j = 2, value = as_paragraph(as_b("I"), as_b(as_sup("2")), as_b("(%)")))
+
+i2_flex <- set_caption(i2_flex, 
+            caption = "Total effect size hetereogneity (Total), as well as the proportion of hetereogeneity in effects resulting from Study and Residual / Observational")
+i2_flex
+
+
+```
+```{r predictMLMA, warning=FALSE, message=FALSE}
+pred<-predict(MLMA)[1] # transformed to just response ratio
+
+```
+
+
+```{r orchardPlot, echo=FALSE, fig.cap="Orchard plot showing the mean log response ratio (lnRR). k = the number of effect sizes and the number of studies is in brackets. The size of the effect has been scaled by the precision (1/sqrt(var_lnRR)) of each effect size value. The bar indicates the 95% confidence interval of the lnRR"}
+
+orchard_plot(mod_results(MLMA, group = "Study", data = lnRR_data),
+             xlab = "Log Response Ratio (lnRR)", angle = 90)
+
+
+# orchard_plot(MLMA, mod = "var_LRR", group = "Study", data = lnRR_data, xlab = "Log Response Ratio (lnRR)", angle = 45)
+
+
+```
+```{r forestPlot, echo=FALSE, include=FALSE, eval=FALSE}
+# not sure how to make forest plot with 92 different study levels
+# can't seem to get it to work for just all the data
+with(lnRR_data, metafor::forest(x = LRR,
+                vi = var_LRR, 
+               # slab = paste(Study),
+                transf = exp,
+                alim = c(-13,13),
+                steps = 5,
+                xlim = c(-13,13),
+                ylim = c(0,92),
+                refline=1, # if exp transformed lnRR
+                cex =.9,
+                header=TRUE
+                ) 
+     )
+
+```
+
+The multi-variate meta-analysis model had a mean response ratio effect size of 0.1273. The response ratio had a 95% confidence interval of `r MLMA$ci.lb[1]` to `r MLMA$ci.ub[1]`. The null hypothesis that the log response ratio, lnRR = 0 cannot be rejected as the log response ratio estimate is not significant (p > 0.05), the p-value is `r MLMA$pval[1]`. 
+
+Using R^2^, in the model, sampling variance accounts for 4.76% of the effect size variance, while the full model accounting for effect size variance, study, and observation, explains 14.84% of the variance. 
+
+The heterogeneity of the data is described in Table \@ref(i2_flex)). Overall there is a highly heterogeneous effect size, with sampling variation not contributing to the total variation in effect, with the total I^2^ of `r i2_vals[2]`. Of the total variation in effect size estimates, `r i2[2,2]`% is the result of differences between studies, while `r i2_vals[3]`% is from residual differences between each observation. The 95% prediction intervals of effect size are wide, with the expected range of the effect size (lnRR) expected to be from `r pred$pi.lb` to `r pred$pi.ub`, 95% of the time, suggesting there may be inconsistencies between or within the studies. 
+
+Using the orchard plot in Figure \@ref(fig:orchardPlot)), we can visualise the distribution and precision of the effect size calculated, lnRR. The effect sizes appear to be approximately clustered around 0, which could suggests there's not a large difference in the response to the treatment relative to the control. We can see that there is a few studies with a large positive effect size. 
+
+
+
+To visually assess the possibility of publication bias, create funnel plot of data
+```{r funnelRR, fig.cap="Funnel plot depicting the response ratio of treatment to control as a function of precision (1/SE). The dotted lines are the theoretical 95% sampling variance intervals. The shaded regions represent the p-value of the studies. The white region indicates studies where the p-value is between 0.1 and 1; dark gray where the p-value of studies is between 0.05 and 0.1 and the lighter gray regions where the p-value of studies is significant.", echo=FALSE}
 # Funnel plot 
-metafor::funnel(x = )
+lnRR_not_extreme <- lnRR_data[lnRR_data$var_LRR > 10e-6,]
+lnRR_not_extreme <- lnRR_data[lnRR_data$LRR < 4,]
 
+metafor::funnel(x = lnRR_data$LRR, # log response ratio
+                vi = lnRR_data$var_LRR, # sampling variances
+                yaxis = "seinv", # inverse standard error
+                digits = 2, 
+                level = c(0.1, 0.05, 0.01), 
+                shade = c("white", "gray55", "gray75"),
+                # las = 1,
+                xlab = "Response Ratio (RR)", 
+                ylab = "Precision (1/SE)", 
+                ylim = c(1:50,by=5),
+                cex = 0.4,
+                refline = 0, #
+                atransf = exp, # transform from log response ratio to just response ratio
+                legend = TRUE)
 
 ```
 
 
-Figure \@ref(fig:funnelLogRR)
+
+
+To visualise the different effect sizes over time, use Time-lag plot
+```{r timelagPlot, fig.cap="Plot of lnRR as function of publication year. Points are scaled in relation to their precision (1/sqrt(var_lnRR)). Small points idicate effects with low precision or high sampling variance", echo=FALSE}
+ggplot(lnRR_data, aes(y = LRR, x = Year.online, size = (1/sqrt(var_LRR)))) + 
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = lm, col = "red", show.legend = FALSE) + 
+  labs(x = "Publication Year (online)",
+  y = "Log Response Ratio (lnRR)", size = "Precision (1/SE)") +
+  theme_classic() +
+  scale_x_continuous(breaks = c(2009, 2010, 2011, 2012, 2013, 2014, 2015,2016, 2017, 2018, 2019))
+```
+
+```{r timeLagRemovedSmallVar, echo=FALSE, fig.cap="Plot of lnRR as function of publication year. Data points with sampling variance smaller than 10^-9^ were removed to visualise the difference in precision between the remaining studies. Points are scaled in relation to their precision (1/sqrt(var_lnRR)). Small points idicate effects with low precision or high sampling variance"}
+ggplot(lnRR_data[lnRR_data$var_LRR > 10e-9,], aes(y = LRR, x = Year.online, size = (1/sqrt(var_LRR)))) + 
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = lm, col = "red", show.legend = FALSE) + 
+  labs(x = "Publication Year (online)",
+  y = "Log Response Ratio (lnRR)", size = "Precision (1/SE)") +
+  theme_classic() +
+  scale_x_continuous(breaks = c(2009, 2010, 2011, 2012, 2013, 2014, 2015,2016, 2017, 2018, 2019))
+```
+
+
+
+To test for time lag bias, meta-regression model with publication year as a fixed effect
+```{r MLMAyear, warning=FALSE}
+MLMA_year <- metafor::rma.mv(yi = LRR ~ Year.online, 
+                        # effect size measure log response ratio with year as fixed effect
+                              V = var_LRR, # sampling variance of LRR
+# fit model using restricted maximum likelihood (considers degrees freedom, better for small sample sizes)
+                              method = "REML", 
+                              # random-effects of the model study and observation (residual)
+                              random = list(~1 | Study, 
+                                            ~1 | residual 
+                                            #, ~1 | Species
+                                            ), 
+                              test = "t", # use the t test statistic 
+                              data = lnRR_data) 
+
+summary(MLMA_year)
+pred_year <- predict(MLMA_year)[1]
+pred_year
+```
+
+```{r r2time, echo=FALSE}
+r2_time <- r2_ml(MLMA_year)
+r2_time_flex <- flextable(tibble("R2 marginal" = r2_time[1], "R2 conditional" = r2_time[2]))
+r2_time_flex <- set_caption(r2_time_flex, 
+            caption = "Variation in effect size explained by year and random effects of the model")
+r2_time_flex
+
+```
+
+To look for file-drawer biases, fit meta-regression model that includes inverse sampling variance (1/var_lnRR) 
+```{r MLMAinverse, warning=FALSE}
+MLMA_inverse <- metafor::rma.mv(yi = LRR ~ 1/var_LRR, 
+                        # effect size measure log response ratio with inverse sampling variance as fixed effect
+                              V = var_LRR, # sampling variance of LRR
+# fit model using restricted maximum likelihood (considers degrees freedom, better for small sample sizes)
+                              method = "REML", 
+                              # random-effects of the model study and observation (residual)
+                              random = list(~1 | Study, 
+                                            ~1 | residual 
+                                          #  , ~1 | Species
+                                            ), 
+                              test = "t", # use the t test statistic 
+                              data = lnRR_data) 
+
+summary(MLMA_inverse)
+
+r2_inverse <- r2_ml(MLMA_inverse)
+r2_inverse_flex <- flextable(tibble("R2 marginal" = r2_inverse[1],
+       "R2 conditional" = r2_inverse[2]))
+
+r2_inverse_flex <- set_caption(r2_inverse_flex, 
+            caption = "Variation in effect size explained by the inverse sampling variance and random effects of the model")
+r2_inverse_flex
+
+```
+
+```{r MLMAspecies, echo=FALSE}
+MLMA_species <- metafor::rma.mv(yi = LRR ~ var_LRR + Year.online, 
+                        # effect size measure log response ratio with inverse sampling variance as fixed effect
+                              V = var_LRR, # sampling variance of LRR
+# fit model using restricted maximum likelihood (considers degrees freedom, better for small sample sizes)
+                              method = "REML", 
+                              # random-effects of the model study and observation (residual)
+                              random = list(~1 | Study, 
+                                            ~1 | residual,
+                                            ~1 | Species
+                                            ), 
+                              test = "t", # use the t test statistic 
+                              data = lnRR_data) 
+summary(MLMA_species)
+r2_species <- r2_ml(MLMA_species)
+r2_species_flex <- flextable(tibble("R2 marginal" = r2_species[1],
+       "R2 conditional" = r2_species[2]))
+r2_species_flex <- set_caption(r2_species_flex, 
+                              caption = "Variation in the effect size explained by sampling variation and year, with species included in the random effects of the model")
+r2_species_flex
+```
+
+```{r flippedFunnel, fig.cap="Plot of Log Response Ratio lnRR against sampling variance for lnRR with a linear model fitted to the data", warning=FALSE, echo=FALSE, include=FALSE}
+ggplot(lnRR_data, aes(y = LRR, x = var_LRR, colour = Study)) + 
+  geom_point() + 
+  geom_smooth(method = lm) +
+    labs(y = "Log Response Ratio (lnRR)", x = "Sampling Variance of lnRR") +
+    theme_classic()  + 
+   theme(legend.position = "hide")
+```
+```{r timelagPlot, fig.cap="Plot of lnRR as function of publication year. Points are scaled in relation to their precision (1/sqrt(var_lnRR)). Small points idicate effects with low precision or high sampling variance", echo=FALSE}
+ggplot(lnRR_data, aes(y = LRR, x = Year.online, size = (1/sqrt(var_LRR)), colour = Study) ) + 
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = lm, col = "red", show.legend = FALSE) + 
+  labs(x = "Publication Year (online)",
+  y = "Log Response Ratio (lnRR)", size = "Precision (1/SE)") +
+  theme_classic() +
+  scale_x_continuous(breaks = c(2009, 2010, 2011, 2012, 2013, 2014, 2015,2016, 2017, 2018, 2019))
+```
+```{r}
+metafor::funnel(x = lnRR_data$LRR, # log response ratio
+                vi = lnRR_data$var_LRR, # sampling variances
+                yaxis = "seinv", # inverse standard error
+                digits = 2, 
+                level = c(0.1, 0.05, 0.01), 
+                shade = c("white", "gray55", "gray75"),
+                # las = 1,
+                xlab = "Response Ratio (RR)", 
+                ylab = "Precision (1/SE)", 
+                ylim = c(1:50,by=5),
+                cex = 0.4,
+                col = lnRR_data$Study,
+                refline = 0, #
+                atransf = exp, # transform from log response ratio to just response ratio
+                legend = TRUE)
+
+```
+
+
+
+#### The potential for publication bias, based on the meta-regression results
+
+There appears to potentially be a time-lag bias present in the data. In Figure \@ref(fig:timelagPlot)) we can see that in the first two years, 2009 and 2010, there are more studies with a higher effect size (lnRR) than in later years. The linear model of the effect size over time shows a slight decrease, and is approximately tending towards and effect size of zero. The studies in 2009 with the highest precision have an effect size of close to zero, and when we remove the two data points from 2009 with this very high precision, as seen in Figure \@ref(fig:timeLagRemovedSmallVar)), we can see that the studies in subsequent years with higher precision also tend around an effect size of zero, while studies with smaller precision had large positive or negative effect sizes. 
+The multi-variate meta-analytic model fitted to the Log Response Ratio using year as a fixed effect indicated that the mean effect size significantly (p < 0.01) decreased as more studies are conducted, with a slope of -0.1146. The model suggests that that time lag explains `r r2_time[1]*100`% of the variation in lnRR across studies. This suggests that there is time-lag bias present, with the average effect size of studies over time approaching zero. 
+
+In Figure \@ref(fig:funnelRR)) we can see that the precision of the effect size (RR) falls into a funnel shape. There appears to be more effect sizes in the positive response ratio, which would correspond to an increased response to ocean acidification in fish. However, there are also studies that show an opposite pattern. There appears to be a small gap in the left of the funnel plot, which could potentially suggest publication 'file drawer' bias in the data. As studies with low precision and non-significant response ratios that show a response ratio of less than one, could go unpublished. However, when the Log Response Ratio (lnRR) is fitted to a multivariate meta-analysis model using the inverse sampling variance, there was not a significant (p > 0.05) estimated mean change in lnRR when the inverse sammpling error changes. Additionally, `r r2_inverse[1]*100`% of the variance in effect size could be explained by the inverse sampling variance. Overall, this can not indicate that there is file-drawer publication bias occuring. 
+
+
+Identify any studies contributing to publication bias. 
+- one's with very large effect sizes, a2
+- one's with low precision high effect size  
+
+
+How do your updated meta-analysis results compare with a meta-analysis by Clement et. al. (2022)? Are there any concerns about these studies? If so, describe using references to existing papers what concerns have been raised?
+
+The meta-analysis by Clement *et al* (2022) found in their review of 91 studies found evidence to suggest that over time the studies can be characterised by a decline effect, in which the large effects found in initial studies have not been present in subsequent studies. 
+This is consistent with the results from this meta-analysis that found a decrease in effect size over time, as seen in Figure \@ref(fig:timelagPlot)). 
+- magnitude? 
+
 
